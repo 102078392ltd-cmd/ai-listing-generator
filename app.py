@@ -1,6 +1,6 @@
 """
 Real Estate Listing Generator — Streamlit Demo App
-Full Marketing Package: MLS + Social Media + Email
+Full Marketing Package: MLS + Social Media + Email + Photo Captions
 Powered by Azure OpenAI GPT-4o
 """
 
@@ -74,6 +74,7 @@ st.markdown("""
     .badge-facebook { background: #E8F0FE; color: #1877F2; }
     .badge-email { background: #FFF8E1; color: #F57C00; }
     .badge-mls { background: #E8F5E9; color: #2E7D32; }
+    .badge-photo { background: #F3E5F5; color: #7B1FA2; }
 
     [data-testid="stSidebar"] { background: #F7F9FB; }
     [data-testid="stSidebar"] .stSelectbox label,
@@ -95,7 +96,7 @@ def get_engine():
 st.markdown("""
 <div class="brand-header">
     <h1>🏠 AI Listing Generator</h1>
-    <p>MLS descriptions, social posts, and email campaigns — powered by Azure OpenAI</p>
+    <p>MLS descriptions, social posts, email campaigns, and photo captions — powered by Azure OpenAI</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -197,8 +198,9 @@ def render_card(content, badge_class, badge_label, key_prefix):
 
 
 # ── Tabs ─────────────────────────────────────────────────────
-tab_pkg, tab_mls, tab_social, tab_email = st.tabs([
-    "📦 Full Package", "📝 MLS Listing", "📱 Social Media", "📧 Email Blast"
+tab_pkg, tab_mls, tab_social, tab_email, tab_photo = st.tabs([
+    "📦 Full Package", "📝 MLS Listing", "📱 Social Media",
+    "📧 Email Blast", "📸 Photo Captions"
 ])
 
 # ── TAB: Full Package ────────────────────────────────────────
@@ -340,6 +342,81 @@ with tab_email:
         render_card(st.session_state["email_blast"], "badge-email", "Email", "email_blast")
 
         st.success(f"Email generated  •  {property_type}  •  {neighbourhood or city}")
+
+# ── TAB: Photo Captions ─────────────────────────────────────
+with tab_photo:
+    st.markdown(
+        "**Upload a listing photo** and AI will analyze what's in the image "
+        "to write a tailored social media caption. The property details from "
+        "the sidebar are included for context."
+    )
+
+    uploaded_photo = st.file_uploader(
+        "Upload a listing photo",
+        type=["jpg", "jpeg", "png", "webp"],
+        key="photo_upload",
+        help="Upload a photo of the property — kitchen, living room, exterior, yard, etc.",
+    )
+
+    if uploaded_photo:
+        st.image(uploaded_photo, use_container_width=True)
+
+    photo_output = st.radio(
+        "What to generate",
+        ["Instagram Caption", "Facebook Post", "Photo Description", "All Three"],
+        horizontal=True,
+        key="photo_output_type",
+    )
+
+    if st.button("📸 Generate from Photo", type="primary", key="btn_photo"):
+        if not uploaded_photo:
+            st.warning("Please upload a listing photo first.")
+        else:
+            engine = get_engine()
+            prop = build_property_dict()
+            image_bytes = uploaded_photo.getvalue()
+
+            results = {}
+
+            with st.spinner("Analyzing photo and writing captions..."):
+                if photo_output in ("Instagram Caption", "All Three"):
+                    results["instagram"] = engine.generate_photo_caption(
+                        image_bytes, prop, platform="instagram"
+                    )
+                if photo_output in ("Facebook Post", "All Three"):
+                    results["facebook"] = engine.generate_photo_caption(
+                        image_bytes, prop, platform="facebook"
+                    )
+                if photo_output in ("Photo Description", "All Three"):
+                    results["description"] = engine.describe_photo(image_bytes)
+
+            st.session_state["photo_results"] = results
+
+    if "photo_results" in st.session_state:
+        results = st.session_state["photo_results"]
+
+        if results.get("instagram"):
+            st.subheader("Instagram Caption")
+            render_card(
+                results["instagram"], "badge-instagram",
+                "Instagram • Photo", "photo_insta"
+            )
+
+        if results.get("facebook"):
+            st.subheader("Facebook Post")
+            render_card(
+                results["facebook"], "badge-facebook",
+                "Facebook • Photo", "photo_fb"
+            )
+
+        if results.get("description"):
+            st.subheader("Photo Description")
+            render_card(
+                results["description"], "badge-photo",
+                "Description", "photo_desc"
+            )
+
+        st.success("Photo captions generated!")
 
 # ── Footer ───────────────────────────────────────────────────
 st.divider()

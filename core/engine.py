@@ -6,19 +6,25 @@ Connects to Azure OpenAI and generates:
 - Social media posts (Instagram, Facebook)
 - Email marketing copy
 - Full marketing packages (all of the above)
+- Photo-based captions using GPT-4o Vision
 """
 
 import os
+import base64
 from dotenv import load_dotenv
 from openai import AzureOpenAI
 from .prompts import (
     SYSTEM_PROMPT,
     get_system_prompt,
     build_user_prompt,
+    build_photo_context,
     SOCIAL_INSTAGRAM_PROMPT,
     SOCIAL_FACEBOOK_PROMPT,
     EMAIL_BLAST_PROMPT,
     FULL_PACKAGE_PROMPT,
+    PHOTO_CAPTION_INSTAGRAM_PROMPT,
+    PHOTO_CAPTION_FACEBOOK_PROMPT,
+    PHOTO_DESCRIBE_PROMPT,
 )
 
 load_dotenv()
@@ -46,9 +52,9 @@ class ListingEngine:
             api_version=self.api_version,
         )
 
-    # ── Core generation method ───────────────────────────────
+    # ── Core text generation ─────────────────────────────────
     def _generate(self, property_details, system_prompt, temperature=0.7):
-        """Internal: send a prompt pair to Azure OpenAI and return the response."""
+        """Internal: send a text prompt to Azure OpenAI and return the response."""
         user_prompt = build_user_prompt(property_details)
 
         response = self.client.chat.completions.create(
@@ -57,6 +63,36 @@ class ListingEngine:
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
+            ],
+        )
+
+        return response.choices[0].message.content.strip()
+
+    # ── Core vision generation ───────────────────────────────
+    def _generate_with_image(self, image_bytes, system_prompt, user_text="", temperature=0.7):
+        """Send an image + optional text to GPT-4o Vision."""
+        b64_image = base64.b64encode(image_bytes).decode("utf-8")
+
+        user_content = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{b64_image}",
+                    "detail": "high",
+                },
+            },
+        ]
+
+        if user_text:
+            user_content.insert(0, {"type": "text", "text": user_text})
+
+        response = self.client.chat.completions.create(
+            model=self.deployment,
+            temperature=temperature,
+            max_tokens=1000,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
             ],
         )
 
@@ -136,3 +172,18 @@ class ListingEngine:
             sections["mls"] = raw
 
         return sections
+
+    # ── Photo-Based Captions (GPT-4o Vision) ─────────────────
+    def generate_photo_caption(self, image_bytes, property_details=None, platform="instagram", temperature=0.8):
+        """Generate a social caption based on a listing photo using GPT-4o Vision."""
+        prompts = {
+            "instagram": PHOTO_CAPTION_INSTAGRAM_PROMPT,
+            "facebook": PHOTO_CAPTION_FACEBOOK_PROMPT,
+        }
+        system_prompt = prompts.get(platform.lower(), PHOTO_CAPTION_INSTAGRAM_PROMPT)
+        context = build_photo_context(property_details) if property_details else ""
+        return self._generate_with_image(image_bytes, system_prompt, context, temperature)
+
+    def describe_photo(self, image_bytes, temperature=0.5):
+        """Generate a professional description of a listing photo."""
+        return self._generate_with_image(image_bytes, PHOTO_DESCRIBE_PROMPT, "", temperature)
