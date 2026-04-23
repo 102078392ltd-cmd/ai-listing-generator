@@ -1,5 +1,6 @@
 """
 Real Estate Listing Generator — Streamlit Demo App
+Full Marketing Package: MLS + Social Media + Email
 Powered by Azure OpenAI GPT-4o
 """
 
@@ -16,9 +17,8 @@ st.set_page_config(
 # ── Custom styling ───────────────────────────────────────────
 st.markdown("""
 <style>
-    .block-container { max-width: 740px; padding-top: 1.5rem; }
+    .block-container { max-width: 760px; padding-top: 1.5rem; }
 
-    /* Header banner */
     .brand-header {
         background: linear-gradient(135deg, #1B4D7A 0%, #2E86C1 100%);
         color: white;
@@ -27,19 +27,9 @@ st.markdown("""
         margin-bottom: 1.5rem;
         text-align: center;
     }
-    .brand-header h1 {
-        margin: 0;
-        font-size: 1.9rem;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-    }
-    .brand-header p {
-        margin: 0.4rem 0 0 0;
-        font-size: 0.95rem;
-        opacity: 0.9;
-    }
+    .brand-header h1 { margin: 0; font-size: 1.9rem; font-weight: 700; }
+    .brand-header p { margin: 0.4rem 0 0 0; font-size: 0.95rem; opacity: 0.9; }
 
-    /* Generate button */
     .stButton > button {
         width: 100%;
         padding: 0.7rem 1rem;
@@ -48,7 +38,6 @@ st.markdown("""
         border-radius: 8px;
     }
 
-    /* Listing output card */
     .listing-card {
         background: #FAFBFC;
         border: 1px solid #E2E8F0;
@@ -61,7 +50,6 @@ st.markdown("""
         white-space: pre-wrap;
     }
 
-    /* Word count badge */
     .word-badge {
         display: inline-block;
         background: #E8F4FD;
@@ -73,7 +61,20 @@ st.markdown("""
         margin-bottom: 0.5rem;
     }
 
-    /* Sidebar polish */
+    .platform-badge {
+        display: inline-block;
+        padding: 0.2rem 0.7rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        margin-right: 0.4rem;
+    }
+    .badge-instagram { background: #FCEDF2; color: #C13584; }
+    .badge-facebook { background: #E8F0FE; color: #1877F2; }
+    .badge-email { background: #FFF8E1; color: #F57C00; }
+    .badge-mls { background: #E8F5E9; color: #2E7D32; }
+
     [data-testid="stSidebar"] { background: #F7F9FB; }
     [data-testid="stSidebar"] .stSelectbox label,
     [data-testid="stSidebar"] .stNumberInput label,
@@ -85,7 +86,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── Cached engine (one connection per session) ───────────────
+# ── Cached engine ────────────────────────────────────────────
 @st.cache_resource
 def get_engine():
     return ListingEngine()
@@ -94,11 +95,11 @@ def get_engine():
 st.markdown("""
 <div class="brand-header">
     <h1>🏠 AI Listing Generator</h1>
-    <p>MLS-ready property descriptions in seconds — powered by Azure OpenAI</p>
+    <p>MLS descriptions, social posts, and email campaigns — powered by Azure OpenAI</p>
 </div>
 """, unsafe_allow_html=True)
 
-# ── Sidebar: property inputs ────────────────────────────────
+# ── Sidebar ──────────────────────────────────────────────────
 with st.sidebar:
     st.header("📋 Property Details")
 
@@ -150,13 +151,6 @@ with st.sidebar:
          "First-Time Buyer"],
     )
 
-    num_variations = st.radio(
-        "Versions to Generate",
-        [1, 2, 3],
-        horizontal=True,
-        index=0,
-    )
-
 # ── Build property dict ─────────────────────────────────────
 def build_property_dict():
     features = [f.strip() for f in features_text.strip().splitlines() if f.strip()]
@@ -177,54 +171,175 @@ def build_property_dict():
         details["extras"] = extras.strip()
     return details
 
-# ── Generate ─────────────────────────────────────────────────
-if st.button("✨ Generate Listing", type="primary"):
-    engine = get_engine()
-    prop = build_property_dict()
 
-    with st.spinner("Writing listing..."):
-        if num_variations == 1:
-            descriptions = [engine.generate(prop)]
-        else:
-            descriptions = engine.generate_variations(prop, count=num_variations)
+# ── Helper: render a content card ────────────────────────────
+def render_card(content, badge_class, badge_label, key_prefix):
+    word_count = len(content.split())
+    st.markdown(
+        f'<span class="platform-badge {badge_class}">{badge_label}</span>'
+        f'<span class="word-badge">{word_count} words</span>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(f'<div class="listing-card">{content}</div>', unsafe_allow_html=True)
 
-    st.session_state["listings"] = descriptions
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.download_button(
+            label="📄 Download",
+            data=content,
+            file_name=f"{key_prefix}.txt",
+            mime="text/plain",
+            key=f"dl_{key_prefix}",
+        )
+    with col_b:
+        with st.expander("📋 Copy"):
+            st.code(content, language=None)
 
-# ── Display results ──────────────────────────────────────────
-if "listings" in st.session_state:
-    descriptions = st.session_state["listings"]
 
-    for i, desc in enumerate(descriptions, 1):
-        word_count = len(desc.split())
+# ── Tabs ─────────────────────────────────────────────────────
+tab_pkg, tab_mls, tab_social, tab_email = st.tabs([
+    "📦 Full Package", "📝 MLS Listing", "📱 Social Media", "📧 Email Blast"
+])
 
-        if len(descriptions) > 1:
-            st.subheader(f"Version {i}")
+# ── TAB: Full Package ────────────────────────────────────────
+with tab_pkg:
+    st.markdown("**Generate your complete marketing kit in one click** — "
+                "MLS description, Instagram post, Facebook post, and email blast.")
 
-        st.markdown(f'<span class="word-badge">{word_count} words</span>',
-                     unsafe_allow_html=True)
-        st.markdown(f'<div class="listing-card">{desc}</div>',
-                     unsafe_allow_html=True)
+    if st.button("🚀 Generate Full Package", type="primary", key="btn_pkg"):
+        engine = get_engine()
+        prop = build_property_dict()
 
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.download_button(
-                label="📄 Download as Text",
-                data=desc,
-                file_name=f"listing_v{i}.txt",
-                mime="text/plain",
-                key=f"dl_{i}",
-            )
-        with col_b:
-            with st.expander("📋 Copy to Clipboard"):
-                st.code(desc, language=None)
+        with st.spinner("Creating your full marketing package..."):
+            package = engine.generate_full_package(prop)
 
-    st.success(
-        f"{'Listing' if len(descriptions) == 1 else f'{len(descriptions)} versions'} "
-        f"generated  •  {property_type}  •  {neighbourhood or city}"
+        st.session_state["package"] = package
+
+    if "package" in st.session_state:
+        pkg = st.session_state["package"]
+
+        if pkg.get("mls"):
+            st.subheader("MLS Listing")
+            render_card(pkg["mls"], "badge-mls", "MLS", "pkg_mls")
+
+        if pkg.get("instagram"):
+            st.subheader("Instagram")
+            render_card(pkg["instagram"], "badge-instagram", "Instagram", "pkg_insta")
+
+        if pkg.get("facebook"):
+            st.subheader("Facebook")
+            render_card(pkg["facebook"], "badge-facebook", "Facebook", "pkg_fb")
+
+        if pkg.get("email"):
+            st.subheader("Email Blast")
+            render_card(pkg["email"], "badge-email", "Email", "pkg_email")
+
+        combined = ""
+        for label, key in [("MLS LISTING", "mls"), ("INSTAGRAM", "instagram"),
+                           ("FACEBOOK", "facebook"), ("EMAIL", "email")]:
+            if pkg.get(key):
+                combined += f"{'='*50}\n{label}\n{'='*50}\n\n{pkg[key]}\n\n\n"
+
+        st.divider()
+        st.download_button(
+            label="📥 Download Entire Package",
+            data=combined,
+            file_name=f"marketing_package_{neighbourhood or city}.txt",
+            mime="text/plain",
+            key="dl_full_pkg",
+        )
+
+        st.success(f"Full package generated  •  {property_type}  •  "
+                   f"{neighbourhood or city}")
+
+# ── TAB: MLS Listing ────────────────────────────────────────
+with tab_mls:
+    st.markdown("**Generate a polished MLS listing description** — "
+                "third person, no clichés, ready to paste.")
+
+    num_variations = st.radio(
+        "Versions to Generate", [1, 2, 3],
+        horizontal=True, index=0, key="mls_variations",
     )
 
-else:
-    st.info("👈 Fill in the property details, then click **Generate Listing** to get started.")
+    if st.button("✨ Generate MLS Listing", type="primary", key="btn_mls"):
+        engine = get_engine()
+        prop = build_property_dict()
+
+        with st.spinner("Writing listing..."):
+            if num_variations == 1:
+                descriptions = [engine.generate(prop)]
+            else:
+                descriptions = engine.generate_variations(prop, count=num_variations)
+
+        st.session_state["mls_listings"] = descriptions
+
+    if "mls_listings" in st.session_state:
+        for i, desc in enumerate(st.session_state["mls_listings"], 1):
+            if len(st.session_state["mls_listings"]) > 1:
+                st.subheader(f"Version {i}")
+            render_card(desc, "badge-mls", "MLS", f"mls_v{i}")
+
+        st.success(
+            f"{'Listing' if num_variations == 1 else f'{num_variations} versions'} "
+            f"generated  •  {property_type}  •  {neighbourhood or city}"
+        )
+
+# ── TAB: Social Media ───────────────────────────────────────
+with tab_social:
+    st.markdown("**Generate social media posts** — "
+                "ready to paste into Instagram or Facebook.")
+
+    platform = st.radio(
+        "Platform", ["Instagram", "Facebook", "Both"],
+        horizontal=True, key="social_platform",
+    )
+
+    if st.button("📱 Generate Social Post", type="primary", key="btn_social"):
+        engine = get_engine()
+        prop = build_property_dict()
+
+        with st.spinner("Writing social posts..."):
+            results = {}
+            if platform in ("Instagram", "Both"):
+                results["instagram"] = engine.generate_social(prop, "instagram")
+            if platform in ("Facebook", "Both"):
+                results["facebook"] = engine.generate_social(prop, "facebook")
+
+        st.session_state["social_posts"] = results
+
+    if "social_posts" in st.session_state:
+        posts = st.session_state["social_posts"]
+
+        if posts.get("instagram"):
+            st.subheader("Instagram")
+            render_card(posts["instagram"], "badge-instagram", "Instagram", "social_insta")
+
+        if posts.get("facebook"):
+            st.subheader("Facebook")
+            render_card(posts["facebook"], "badge-facebook", "Facebook", "social_fb")
+
+        st.success(f"Social posts generated  •  {property_type}  •  "
+                   f"{neighbourhood or city}")
+
+# ── TAB: Email Blast ─────────────────────────────────────────
+with tab_email:
+    st.markdown("**Generate a new-listing email announcement** — "
+                "subject line and body, ready to send.")
+
+    if st.button("📧 Generate Email", type="primary", key="btn_email"):
+        engine = get_engine()
+        prop = build_property_dict()
+
+        with st.spinner("Writing email..."):
+            email_text = engine.generate_email(prop)
+
+        st.session_state["email_blast"] = email_text
+
+    if "email_blast" in st.session_state:
+        render_card(st.session_state["email_blast"], "badge-email", "Email", "email_blast")
+
+        st.success(f"Email generated  •  {property_type}  •  {neighbourhood or city}")
 
 # ── Footer ───────────────────────────────────────────────────
 st.divider()
