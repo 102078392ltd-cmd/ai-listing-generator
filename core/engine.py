@@ -25,7 +25,10 @@ from .prompts import (
     PHOTO_CAPTION_INSTAGRAM_PROMPT,
     PHOTO_CAPTION_FACEBOOK_PROMPT,
     PHOTO_DESCRIBE_PROMPT,
+    PHOTO_CAROUSEL_INSTAGRAM_PROMPT,
+    PHOTO_CAROUSEL_FACEBOOK_PROMPT,
 )
+
 
 load_dotenv()
 
@@ -187,3 +190,40 @@ class ListingEngine:
     def describe_photo(self, image_bytes, temperature=0.5):
         """Generate a professional description of a listing photo."""
         return self._generate_with_image(image_bytes, PHOTO_DESCRIBE_PROMPT, "", temperature)
+    
+    def generate_carousel_caption(self, image_list, property_details=None, platform="instagram", temperature=0.8):
+        """Generate one unified carousel caption from multiple listing photos using GPT-4o Vision."""
+        prompts = {
+            "instagram": PHOTO_CAROUSEL_INSTAGRAM_PROMPT,
+            "facebook": PHOTO_CAROUSEL_FACEBOOK_PROMPT,
+        }
+        system_prompt = prompts.get(platform.lower(), PHOTO_CAROUSEL_INSTAGRAM_PROMPT)
+        context = build_photo_context(property_details) if property_details else ""
+
+        # Build content array with all images
+        user_content = []
+        if context:
+            user_content.append({"type": "text", "text": context})
+
+        for image_bytes in image_list:
+            b64_image = base64.b64encode(image_bytes).decode("utf-8")
+            user_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{b64_image}",
+                    "detail": "low",
+                },
+            })
+
+        response = self.client.chat.completions.create(
+            model=self.deployment,
+            temperature=temperature,
+            max_tokens=1000,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+        )
+
+        return response.choices[0].message.content.strip()
+

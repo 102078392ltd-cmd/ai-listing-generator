@@ -346,78 +346,201 @@ with tab_email:
 # ── TAB: Photo Captions ─────────────────────────────────────
 with tab_photo:
     st.markdown(
-        "**Upload a listing photo** and AI will analyze what's in the image "
-        "to write a tailored social media caption. The property details from "
-        "the sidebar are included for context."
+        "**Upload one or more listing photos** and AI will analyze each image "
+        "to write tailored social media captions. Upload 2+ photos to unlock "
+        "**Carousel Mode** — one unified caption for a swipeable post."
     )
 
-    uploaded_photo = st.file_uploader(
-        "Upload a listing photo",
+    uploaded_photos = st.file_uploader(
+        "Upload listing photos",
         type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True,
         key="photo_upload",
-        help="Upload a photo of the property — kitchen, living room, exterior, yard, etc.",
+        help="Upload photos of the property — kitchen, living room, exterior, yard, etc.",
     )
 
-    if uploaded_photo:
-        st.image(uploaded_photo, use_container_width=True)
+    # Show thumbnail grid
+    if uploaded_photos:
+        st.markdown(f"**{len(uploaded_photos)} photo{'s' if len(uploaded_photos) > 1 else ''} uploaded**")
+        cols = st.columns(min(len(uploaded_photos), 4))
+        for i, photo in enumerate(uploaded_photos):
+            with cols[i % 4]:
+                st.image(photo, caption=photo.name, use_container_width=True)
 
-    photo_output = st.radio(
-        "What to generate",
-        ["Instagram Caption", "Facebook Post", "Photo Description", "All Three"],
-        horizontal=True,
-        key="photo_output_type",
-    )
+    # Mode selection — carousel only available with 2+ photos
+    if uploaded_photos and len(uploaded_photos) >= 2:
+        caption_mode = st.radio(
+            "Caption Mode",
+            ["Individual Captions", "Carousel Post"],
+            horizontal=True,
+            key="caption_mode",
+            help="Individual = one caption per photo. Carousel = one unified swipe-through caption.",
+        )
+    else:
+        caption_mode = "Individual Captions"
 
-    if st.button("📸 Generate from Photo", type="primary", key="btn_photo"):
-        if not uploaded_photo:
-            st.warning("Please upload a listing photo first.")
+    # Output type selection
+    if caption_mode == "Individual Captions":
+        photo_output = st.radio(
+            "What to generate",
+            ["Instagram Caption", "Facebook Post", "Photo Description", "All Three"],
+            horizontal=True,
+            key="photo_output_type",
+        )
+    else:
+        photo_output = st.radio(
+            "What to generate",
+            ["Instagram Carousel", "Facebook Post", "Both"],
+            horizontal=True,
+            key="carousel_output_type",
+        )
+
+    # Generate button
+    btn_label = "🎠 Generate Carousel" if caption_mode == "Carousel Post" else "📸 Generate from Photos"
+
+    if st.button(btn_label, type="primary", key="btn_photo"):
+        if not uploaded_photos:
+            st.warning("Please upload at least one listing photo first.")
         else:
             engine = get_engine()
             prop = build_property_dict()
-            image_bytes = uploaded_photo.getvalue()
 
-            results = {}
+            if caption_mode == "Individual Captions":
+                # ── Tier 1: Individual captions per photo ──
+                all_results = []
+                progress = st.progress(0, text="Analyzing photos...")
 
-            with st.spinner("Analyzing photo and writing captions..."):
-                if photo_output in ("Instagram Caption", "All Three"):
-                    results["instagram"] = engine.generate_photo_caption(
-                        image_bytes, prop, platform="instagram"
+                for idx, photo in enumerate(uploaded_photos):
+                    progress.progress(
+                        (idx) / len(uploaded_photos),
+                        text=f"Analyzing photo {idx + 1} of {len(uploaded_photos)}: {photo.name}",
                     )
-                if photo_output in ("Facebook Post", "All Three"):
-                    results["facebook"] = engine.generate_photo_caption(
-                        image_bytes, prop, platform="facebook"
-                    )
-                if photo_output in ("Photo Description", "All Three"):
-                    results["description"] = engine.describe_photo(image_bytes)
 
-            st.session_state["photo_results"] = results
+                    image_bytes = photo.getvalue()
+                    results = {"filename": photo.name}
 
-    if "photo_results" in st.session_state:
-        results = st.session_state["photo_results"]
+                    if photo_output in ("Instagram Caption", "All Three"):
+                        results["instagram"] = engine.generate_photo_caption(
+                            image_bytes, prop, platform="instagram"
+                        )
+                    if photo_output in ("Facebook Post", "All Three"):
+                        results["facebook"] = engine.generate_photo_caption(
+                            image_bytes, prop, platform="facebook"
+                        )
+                    if photo_output in ("Photo Description", "All Three"):
+                        results["description"] = engine.describe_photo(image_bytes)
 
-        if results.get("instagram"):
-            st.subheader("Instagram Caption")
-            render_card(
-                results["instagram"], "badge-instagram",
-                "Instagram • Photo", "photo_insta"
+                    all_results.append(results)
+
+                progress.progress(1.0, text="Done!")
+                st.session_state["photo_results_batch"] = all_results
+                st.session_state.pop("carousel_results", None)
+
+            else:
+                # ── Tier 2: Carousel caption from all photos ──
+                image_list = [photo.getvalue() for photo in uploaded_photos]
+                filenames = [photo.name for photo in uploaded_photos]
+                carousel_results = {"filenames": filenames}
+
+                with st.spinner(f"Analyzing {len(uploaded_photos)} photos for carousel caption..."):
+                    if photo_output in ("Instagram Carousel", "Both"):
+                        carousel_results["instagram"] = engine.generate_carousel_caption(
+                            image_list, prop, platform="instagram"
+                        )
+                    if photo_output in ("Facebook Post", "Both"):
+                        carousel_results["facebook"] = engine.generate_carousel_caption(
+                            image_list, prop, platform="facebook"
+                        )
+
+                st.session_state["carousel_results"] = carousel_results
+                st.session_state.pop("photo_results_batch", None)
+
+    # ── Display Individual Results ──
+    if "photo_results_batch" in st.session_state:
+        all_results = st.session_state["photo_results_batch"]
+
+        for idx, results in enumerate(all_results):
+            filename = results.get("filename", f"Photo {idx + 1}")
+            st.markdown("---")
+            st.subheader(f"📷 {filename}")
+
+            if results.get("instagram"):
+                render_card(
+                    results["instagram"], "badge-instagram",
+                    "Instagram • Photo", f"photo_insta_{idx}",
+                )
+            if results.get("facebook"):
+                render_card(
+                    results["facebook"], "badge-facebook",
+                    "Facebook • Photo", f"photo_fb_{idx}",
+                )
+            if results.get("description"):
+                render_card(
+                    results["description"], "badge-photo",
+                    "Description", f"photo_desc_{idx}",
+                )
+
+        # Download All button
+        if len(all_results) > 0:
+            st.divider()
+
+            combined = ""
+            for idx, results in enumerate(all_results):
+                filename = results.get("filename", f"Photo {idx + 1}")
+                combined += f"{'='*50}\n{filename}\n{'='*50}\n\n"
+                if results.get("instagram"):
+                    combined += f"--- INSTAGRAM ---\n{results['instagram']}\n\n"
+                if results.get("facebook"):
+                    combined += f"--- FACEBOOK ---\n{results['facebook']}\n\n"
+                if results.get("description"):
+                    combined += f"--- DESCRIPTION ---\n{results['description']}\n\n"
+                combined += "\n"
+
+            st.download_button(
+                label=f"📥 Download All Captions ({len(all_results)} photos)",
+                data=combined,
+                file_name=f"photo_captions_{neighbourhood or city}.txt",
+                mime="text/plain",
+                key="dl_all_captions",
             )
 
-        if results.get("facebook"):
-            st.subheader("Facebook Post")
+        st.success(f"Captions generated for {len(all_results)} photo{'s' if len(all_results) > 1 else ''}!")
+
+    # ── Display Carousel Results ──
+    if "carousel_results" in st.session_state:
+        carousel = st.session_state["carousel_results"]
+        filenames = carousel.get("filenames", [])
+
+        st.markdown("---")
+        st.subheader(f"🎠 Carousel Caption ({len(filenames)} photos)")
+        st.caption(f"Photos: {', '.join(filenames)}")
+
+        if carousel.get("instagram"):
             render_card(
-                results["facebook"], "badge-facebook",
-                "Facebook • Photo", "photo_fb"
+                carousel["instagram"], "badge-instagram",
+                "Instagram • Carousel", "carousel_insta",
+            )
+        if carousel.get("facebook"):
+            render_card(
+                carousel["facebook"], "badge-facebook",
+                "Facebook • Carousel", "carousel_fb",
             )
 
-        if results.get("description"):
-            st.subheader("Photo Description")
-            render_card(
-                results["description"], "badge-photo",
-                "Description", "photo_desc"
-            )
+        # Download carousel
+        combined = f"CAROUSEL CAPTION ({len(filenames)} photos)\n"
+        combined += f"Photos: {', '.join(filenames)}\n\n"
+        if carousel.get("instagram"):
+            combined += f"--- INSTAGRAM CAROUSEL ---\n{carousel['instagram']}\n\n"
+        if carousel.get("facebook"):
+            combined += f"--- FACEBOOK ---\n{carousel['facebook']}\n\n"
 
-        st.success("Photo captions generated!")
+        st.divider()
+        st.download_button(
+            label="📥 Download Carousel Caption",
+            data=combined,
+            file_name=f"carousel_caption_{neighbourhood or city}.txt",
+            mime="text/plain",
+            key="dl_carousel",
+        )
 
-# ── Footer ───────────────────────────────────────────────────
-st.divider()
-st.caption("Built with Azure OpenAI  •  © 2026 Lang Automation Solutions")
+        st.success(f"Carousel caption generated from {len(filenames)} photos!")
